@@ -10,11 +10,13 @@ def init_firebase():
     if "firebase_app" not in st.session_state:
 
         if "firebase_credentials" not in st.secrets:
+            # Raising a clear exception if the secret is missing
             raise Exception("Firebase credentials key missing in Streamlit secrets.")
 
         # Decode Base64 firebase key
         try:
             key_b64 = st.secrets["firebase_credentials"]
+            # Ensure the decoded key is a valid JSON string
             key_json = json.loads(base64.b64decode(key_b64).decode("utf-8"))
         except Exception as e:
             raise Exception(f"Failed to decode Firebase credentials: {e}")
@@ -22,12 +24,12 @@ def init_firebase():
         cred = credentials.Certificate(key_json)
         firebase_app = initialize_app(cred)
 
+        # Store the app and the database client in session state
         st.session_state.firebase_app = firebase_app
         st.session_state.firestore_db = firestore.client()
 
 
 # ---- SAVE LOCAL DATA ----
-# **SYNTAX FIX applied here:** The function signature was corrected.
 def save_local_data(data, file_path="local_data.json"):
     """Saves data dictionary to a local JSON file."""
     with open(file_path, "w") as f:
@@ -35,46 +37,54 @@ def save_local_data(data, file_path="local_data.json"):
 
 
 # ---- LOAD LOCAL DATA ----
-# This function is named restore_data, which loads the data.
 def restore_data(file_path="local_data.json"):
     """Loads data dictionary from a local JSON file, returns empty dict if file not found."""
     try:
         with open(file_path, "r") as f:
             return json.load(f)
     except FileNotFoundError:
-        # Returning {} instead of None to match load_data's original logic in app.py
         return {}
 
 
-# ---- MANUAL CLOUD SYNC (Push to Firebase) ----
-def manual_sync():
-    """Manually pushes local_data from session state to Firestore."""
+# ---- MANUAL CLOUD SYNC (Full Push/Pull - Backup Page) ----
+def manual_sync(uid, data):
+    """Manually pushes full data from provided data to Firestore for the specified user ID."""
     init_firebase()
     db = st.session_state.firestore_db
-    # This function uses a hardcoded user ID: "default_user"
-    doc_ref = db.collection("users").document("default_user")
+    doc_ref = db.collection("users").document(uid)
 
-    if "local_data" in st.session_state:
-        doc_ref.set(st.session_state.local_data)
-        st.success("☁️ Data manually synced to cloud!")
-        return "Manual sync complete."
-    else:
-        st.warning("No local data found in session state to sync.")
-        return "Manual sync skipped."
+    doc_ref.set(data)
+    st.success(f"☁️ Data for user '{uid}' manually synced to cloud!")
+    return "Manual sync complete."
 
 
-# ---- AUTO SYNC (Pull from Firebase) ----
-def auto_sync():
-    """Pulls data from Firestore and overwrites st.session_state.local_data."""
-    init_firebase()
+# ---- AUTO SYNC (Push Summary - called by save_data) ----
+def push_summary(uid, summary):
+    """Pushes a small data summary to Firestore for the specified user ID."""
+    # If this is called quickly on every save, we don't want to re-initialize firebase every time
+    if "firestore_db" not in st.session_state:
+        init_firebase()
+        
     db = st.session_state.firestore_db
-    # This function uses a hardcoded user ID: "default_user"
-    doc = db.collection("users").document("default_user").get()
+    doc_ref = db.collection("users").document(uid) 
+    doc_ref.set(summary, merge=True) # Use merge=True to only update profile/stats
 
+
+# ---- RESTORE CLOUD DATA (Full Pull - Backup Page) ----
+def restore_cloud_data(uid):
+    """Pulls full data from Firestore for the specified user ID and returns it."""
+    if "firestore_db" not in st.session_state:
+        init_firebase()
+        
+    db = st.session_state.firestore_db
+    doc = db.collection("users").document(uid).get()
+    
     if doc.exists:
-        st.session_state.local_data = doc.to_dict()
-        st.info("🔄 Auto-sync completed from cloud!")
-        return "Auto sync complete."
+        data = doc.to_dict()
+        # Overwrite local data file with cloud data
+        save_local_data(data)
+        st.info(f"🔄 Full restore for user '{uid}' completed from cloud!")
+        return data
     else:
-        st.info("No cloud data found. Initializing with empty dictionary.")
-        return "Auto sync skipped."
+        st.warning("No cloud backup found for this user ID.")
+        return None
