@@ -3,7 +3,7 @@ import streamlit as st
 import json, os, datetime, random, io
 import pandas as pd
 import plotly.graph_objects as go
-from cloud_sync import manual_sync, auto_sync, restore_data, save_local_data, load_local_data
+from cloud_sync import manual_sync, auto_sync, restore_data, save_local_data
 
 # ---------------- CONFIG ----------------
 DATA_FILE = "local_data.json"
