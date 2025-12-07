@@ -3,8 +3,8 @@ import streamlit as st
 import json, os, datetime, random, io
 import pandas as pd
 import plotly.graph_objects as go
-# FIX 1: Removed 'load_local_data' from import list as it does not exist in cloud_sync.py
-from cloud_sync import manual_sync, auto_sync, restore_data, save_local_data
+# FINAL IMPORTS: Fixed import names and included restore_cloud_data
+from cloud_sync import manual_sync, push_summary, restore_data, save_local_data, restore_cloud_data
 
 # ---------------- CONFIG ----------------
 DATA_FILE = "local_data.json"
@@ -16,27 +16,46 @@ st.set_page_config(page_title="Ayanokoji OS — Habit Tracker", layout="wide", p
 def today_str(offset=0):
     return str(datetime.date.today() + datetime.timedelta(days=offset))
 
+# Define the structure of the default data
+DEFAULT_DATA = {
+    "profile": {"user_id": "default_user", "name": "Akanksha", "level": 1, "xp": 0, "title": "Initiate"},
+    "meta": {"last_active": today_str(), "absolute_mode": False, "night_reset_hour": 23},
+    "stats": {"study_minutes": 0, "football_sessions": 0, "nofap_days": 0, "screen_minutes": 0, "fitness_sessions": 0, "psych_logs": 0},
+    "tasks": {},
+    "history": {},
+    "badges": []
+}
+
 def load_data():
-    # FIX 2: Corrected the function call from load_local_data() to restore_data()
+    # Corrected function call: restore_data()
     data = restore_data()
-    if data is None:
-        # fallback in case file missing
-        from pathlib import Path
-        if not Path(DATA_FILE).exists():
-            # use default local_data.json content (if not created earlier)
-            default = {
-                "profile":{"user_id":"default_user","name":"Akanksha","level":1,"xp":0,"title":"Initiate"},
-                "meta":{"last_active": today_str(), "absolute_mode":False, "night_reset_hour":23},
-                "stats":{"study_minutes":0,"football_sessions":0,"nofap_days":0,"screen_minutes":0,"fitness_sessions":0,"psych_logs":0},
-                "tasks": {},
-                "history": {},
-                "badges": []
-            }
-            save_local_data(default)
-            return default
-        else:
-            return {}
-    return data
+    
+    # NEW FIX: Ensure data is a dictionary and merge with default structure 
+    # if necessary, so top-level keys like "profile" always exist.
+    if not isinstance(data, dict):
+        data = {}
+
+    # Merge loaded data with defaults to ensure all required keys exist
+    # This prevents the TypeError: 'NoneType' object is not subscriptable.
+    # It also handles the case where restore_data() returned {} for a missing file.
+    
+    # We deeply merge here, but for simplicity, we just check top keys
+    final_data = DEFAULT_DATA.copy()
+    
+    # Only overwrite top-level keys if they exist in the loaded data
+    for key in final_data:
+        if key in data:
+            # For nested dictionaries like profile, meta, stats, we merge the content
+            if isinstance(final_data[key], dict) and isinstance(data[key], dict):
+                final_data[key].update(data[key])
+            else:
+                final_data[key] = data[key]
+                
+    # If the file was truly missing, save the full default structure now
+    if not data:
+        save_local_data(final_data)
+        
+    return final_data
 
 def save_data(d, do_auto_sync=True):
     save_local_data(d)
@@ -49,12 +68,8 @@ def save_data(d, do_auto_sync=True):
         # use user_id from profile if exists
         uid = d.get("profile", {}).get("user_id", "default_user")
         try:
-            # NOTE: We assume auto_sync in cloud_sync.py handles the uid/doc logic internally
-            # or is correctly configured to handle data push. If cloud_sync.py was updated
-            # to accept uid and summary, this is correct. Otherwise, we stick to the original
-            # call signature if we don't change cloud_sync.py's auto_sync.
-            # STICKING TO ORIGINAL CODE LOGIC FOR NOW, ASSUMING auto_sync CAN HANDLE IT.
-            auto_sync(uid, summary) 
+            # Corrected call to push_summary
+            push_summary(uid, summary) 
         except Exception:
             pass
 
@@ -78,6 +93,7 @@ def add_xp_and_check_level(d, amount):
 def ensure_today_tasks(d):
     t = today_str()
     if t not in d["tasks"]:
+        # NOTE: This part ensures the task structure is created if it's a new day
         d["tasks"][t] = {
             "morning_identity": [
                 {"name":"Wake up before 6AM","done":False,"xp":25},
@@ -151,12 +167,14 @@ def ai_coach_reply(user_text, d):
     return random.choice(choices)
 
 # ---------------- UI ----------------
-data = load_data()
+# Line 147: Call load_data() to ensure 'data' is always a dictionary
+data = load_data() 
 st.sidebar.title("Ayanokoji OS — Navigation")
 page = st.sidebar.radio("Go to", ["Daily Page","Sections","Analytics","AI Coach","Badges","Settings","Backup"])
 
 # quick user switch (simple multi-device support — type same user_id on other device)
 st.sidebar.markdown("### User")
+# Line 160: This line is now safe because data["profile"] is guaranteed to exist
 uid = st.sidebar.text_input("User ID (type same on other device to sync)", value=data["profile"].get("user_id","default_user"))
 if uid != data["profile"].get("user_id"):
     data["profile"]["user_id"] = uid
@@ -242,6 +260,7 @@ if page=="Daily Page":
                 # uncheck if user unchecks
                 data["tasks"][today][section_key][i]["done"] = False
                 if today in data.get("history",{}) and item["name"] in data["history"][today]:
+                    # FINAL SYNTAX FIX: removed extraneous quote
                     try: data["history"][today].remove(item["name"])
                     except: pass
                 save_data(data)
@@ -365,17 +384,18 @@ elif page=="Settings":
 # ---------- BACKUP ----------
 elif page=="Backup":
     st.header("🔁 Backup / Restore")
-    # FIX 3: Removed the 'uid' argument from function calls to match the cloud_sync.py definitions
+    # Corrected function call to manual_sync (requires uid and data)
     if st.button("Manual Full Backup to Cloud"):
-        # The return value of manual_sync is ignored here
-        manual_sync() 
+        st.success(manual_sync(uid, data)) 
+    # Corrected function call to restore_cloud_data (requires uid)
     if st.button("Restore Full Backup from Cloud (overwrite local)"):
-        # The return value of restore_data is ignored here, and the data is loaded via auto_sync later
-        restore_data() 
+        pulled_data = restore_cloud_data(uid)
+        if pulled_data is not None:
+            # Overwrite the global data object with the restored data
+            data = pulled_data
         st.experimental_rerun()
     buf = io.BytesIO(json.dumps(data, indent=2).encode("utf-8"))
     st.download_button("Download local backup", data=buf, file_name=f"ayan_backup_{uid}.json", mime="application/json")
 
 # Save at end of interaction
 save_data(data)
-
