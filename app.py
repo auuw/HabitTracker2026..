@@ -242,7 +242,7 @@ if page=="Daily Page":
                 # uncheck if user unchecks
                 data["tasks"][today][section_key][i]["done"] = False
                 if today in data.get("history",{}) and item["name"] in data["history"][today]:
-                    try: data["history"][today"].remove(item["name"])
+                    try: data["history"][today].remove(item["name"])
                     except: pass
                 save_data(data)
                 st.experimental_rerun()
