@@ -10,13 +10,11 @@ def init_firebase():
     if "firebase_app" not in st.session_state:
 
         if "firebase_credentials" not in st.secrets:
-            # Raising a clear exception if the secret is missing
             raise Exception("Firebase credentials key missing in Streamlit secrets.")
 
         # Decode Base64 firebase key
         try:
             key_b64 = st.secrets["firebase_credentials"]
-            # Ensure the decoded key is a valid JSON string
             key_json = json.loads(base64.b64decode(key_b64).decode("utf-8"))
         except Exception as e:
             raise Exception(f"Failed to decode Firebase credentials: {e}")
@@ -24,7 +22,6 @@ def init_firebase():
         cred = credentials.Certificate(key_json)
         firebase_app = initialize_app(cred)
 
-        # Store the app and the database client in session state
         st.session_state.firebase_app = firebase_app
         st.session_state.firestore_db = firestore.client()
 
@@ -38,12 +35,14 @@ def save_local_data(data, file_path="local_data.json"):
 
 
 # ---- LOAD LOCAL DATA ----
+# This function is named restore_data, which loads the data.
 def restore_data(file_path="local_data.json"):
     """Loads data dictionary from a local JSON file, returns empty dict if file not found."""
     try:
         with open(file_path, "r") as f:
             return json.load(f)
     except FileNotFoundError:
+        # Returning {} instead of None to match load_data's original logic in app.py
         return {}
 
 
@@ -51,17 +50,17 @@ def restore_data(file_path="local_data.json"):
 def manual_sync():
     """Manually pushes local_data from session state to Firestore."""
     init_firebase()
-    # Assuming 'local_data' exists in st.session_state before calling this function
+    db = st.session_state.firestore_db
+    # This function uses a hardcoded user ID: "default_user"
+    doc_ref = db.collection("users").document("default_user")
+
     if "local_data" in st.session_state:
-        db = st.session_state.firestore_db
-        # Using a fixed document ID for simplicity ("default_user")
-        doc_ref = db.collection("users").document("default_user")
-        
-        # Use .set() to upload or overwrite the data
         doc_ref.set(st.session_state.local_data)
         st.success("☁️ Data manually synced to cloud!")
+        return "Manual sync complete."
     else:
         st.warning("No local data found in session state to sync.")
+        return "Manual sync skipped."
 
 
 # ---- AUTO SYNC (Pull from Firebase) ----
@@ -69,13 +68,13 @@ def auto_sync():
     """Pulls data from Firestore and overwrites st.session_state.local_data."""
     init_firebase()
     db = st.session_state.firestore_db
+    # This function uses a hardcoded user ID: "default_user"
     doc = db.collection("users").document("default_user").get()
 
     if doc.exists:
         st.session_state.local_data = doc.to_dict()
         st.info("🔄 Auto-sync completed from cloud!")
+        return "Auto sync complete."
     else:
-        # If the document doesn't exist yet, we might want to initialize local_data
-        if "local_data" not in st.session_state:
-            st.session_state.local_data = {}
-        st.info("No cloud data found. Initializing with local data or empty dictionary.")
+        st.info("No cloud data found. Initializing with empty dictionary.")
+        return "Auto sync skipped."
