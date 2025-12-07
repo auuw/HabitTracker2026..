@@ -1,27 +1,15 @@
-import streamlit as st
-import json
 import base64
+import json
 from firebase_admin import credentials, firestore, initialize_app
+import streamlit as st
 
-# Load Firebase key from Streamlit secrets
-encoded_key = st.secrets.get("FIREBASE_KEY")
-
-if not encoded_key:
-    st.error("❌ Firebase key not found in secrets!")
-    firebase_dict = None
-else:
-    firebase_json = base64.b64decode(encoded_key).decode("utf-8")
-    firebase_dict = json.loads(firebase_json)
-
-# Initialize Firebase
-db = None
-if firebase_dict and not len(firebase_dict) == 0:
-    cred = credentials.Certificate(firebase_dict)
-    try:
-        initialize_app(cred)
-    except ValueError:
-        pass
-    db = firestore.client()
+def init_firebase():
+    if "firebase_app" not in st.session_state:
+        key_b64 = st.secrets["firebase"]["credentials"]
+        key_json = json.loads(base64.b64decode(key_b64).decode("utf-8"))
+        cred = credentials.Certificate(key_json)
+        st.session_state.firebase_app = initialize_app(cred)
+        st.session_state.db = firestore.client()
 
 
 
