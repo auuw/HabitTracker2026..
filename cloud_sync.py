@@ -23,7 +23,8 @@ def init_firebase():
 
 
 # ---- SAVE LOCAL DATA ----
-def save_local_data(data, file_path="local_data.json"):
+def save_local_data
+    (data, file_path="local_data.json"):
     with open(file_path, "w") as f:
         json.dump(data, f, indent=4)
 
